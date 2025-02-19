@@ -10,7 +10,7 @@ class VehicleGpsPublisher(Node):
 
         timer_period = 1/10.0
 
-        self.receiver = GNSSReceiver(port="/dev/ttyACM1", baudrate=230400, timeout=0.1)
+        self.receiver = GNSSReceiver(port="/dev/ttyACM0", baudrate=230400, timeout=0.1)
 
         self.gps_pub = self.create_publisher(GNSSData, 'gps_data', 10)
 
