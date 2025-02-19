@@ -27,8 +27,8 @@ class GpsToNavSatFix(Node):
         fix_msg.header.stamp = self.get_clock().now().to_msg()
         fix_msg.header.frame_id = self.get_parameter('frame_id').value
 
-        fix_msg.latitude = gnss_msg.lat
-        fix_msg.longitude = gnss_msg.lon
+        fix_msg.latitude = gnss_msg.latitude
+        fix_msg.longitude = gnss_msg.longitude
         fix_msg.altitude = 0.0
 
         fix_msg.status.status = NavSatStatus.STATUS_FIX

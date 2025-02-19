@@ -26,8 +26,8 @@ class VehicleGpsPublisher(Node):
             return
 
         gps_msg = GNSSData()
-        gps_msg.lon = gga_data['longitude']
-        gps_msg.lat = gga_data['latitude']
+        gps_msg.longitude = gga_data['longitude']
+        gps_msg.latitude = gga_data['latitude']
         self.gps_pub.publish(gps_msg)
 
 def main(args=None):
