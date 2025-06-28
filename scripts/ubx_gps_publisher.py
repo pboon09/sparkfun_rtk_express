@@ -13,12 +13,12 @@ class UbxGpsPublisher(Node):
         super().__init__('ubx_gps_publisher')
         
         # Declare parameters
-        self.declare_parameter('port', 'COM4')
+        self.declare_parameter('port', '/dev/ttyRTKExpress')
         self.declare_parameter('baudrate', 57600)
         self.declare_parameter('frame_id', 'gps_link')
-        self.declare_parameter('rate_hz', 12.5)
+        self.declare_parameter('rate_hz', 20.0)
         self.declare_parameter('high_rate', True)
-        self.declare_parameter('measurement_rate_ms', 80)  # 80ms = 12.5Hz
+        self.declare_parameter('measurement_rate_ms', 50)
         
         # Get parameters
         self.port = self.get_parameter('port').value
@@ -56,6 +56,11 @@ class UbxGpsPublisher(Node):
                 return
             
             self.get_logger().info("GPS connected successfully")
+
+            self.get_logger().info(f"Configuring GPS for {1000/self.measurement_rate_ms:.1f}Hz rate...")
+            results = self.gps.configure_for_high_rate(self.measurement_rate_ms)
+            self.get_logger().info(f"Configuration results: {results}")
+
             
             self.is_running = True
             

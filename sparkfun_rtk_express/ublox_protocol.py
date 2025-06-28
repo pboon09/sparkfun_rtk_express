@@ -453,7 +453,7 @@ if __name__ == "__main__":
     import argparse
     
     # Default settings - change these as needed
-    DEFAULT_PORT = "/dev/ttyACM0"  # Change to your GPS port
+    DEFAULT_PORT = "/dev/ttyRTKExpress"  # Change to your GPS port
     DEFAULT_BAUDRATE = 57600
     DEFAULT_RATE = 50  # 50ms = 20Hz
     
@@ -466,6 +466,10 @@ if __name__ == "__main__":
         if not gps.open(DEFAULT_PORT, DEFAULT_BAUDRATE):
             print(f"Error opening serial port: {gps.last_error}")
             exit(1)
+
+        print(f"Configuring GPS for {1000/DEFAULT_RATE:.1f}Hz rate...")
+        results = gps.configure_for_high_rate(DEFAULT_RATE)
+        print(f"Configuration results: {results}")
 
         print("\nReading position data. Press Ctrl+C to stop.")
         print("-" * 60)
