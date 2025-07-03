@@ -16,9 +16,9 @@ class UbxGpsPublisher(Node):
         self.declare_parameter('port', '/dev/ttyRTKExpress')
         self.declare_parameter('baudrate', 57600)
         self.declare_parameter('frame_id', 'gps_link')
-        self.declare_parameter('rate_hz', 20.0)
+        self.declare_parameter('rate_hz', 10.0)
         self.declare_parameter('high_rate', True)
-        self.declare_parameter('measurement_rate_ms', 50)
+        self.declare_parameter('measurement_rate_ms', 100)
         
         # Get parameters
         self.port = self.get_parameter('port').value
