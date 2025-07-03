@@ -317,6 +317,7 @@ class UbxProtocol:
     def get_position_data(self):
         """
         Get position, velocity, and time data (UBX-NAV-PVT).
+        Based on UBX-NAV-PVT (0x01 0x07) specification.
         
         Returns:
             Dictionary with parsed NAV-PVT data or None if no response
@@ -326,7 +327,13 @@ class UbxProtocol:
         if response:
             payload = response['payload']
             if len(payload) >= 92:  # NAV-PVT is 92 bytes
+                # Parse flags according to updated specification
+                flags = payload[21]
+                flags2 = payload[22]
+                flags3 = int.from_bytes(payload[78:80], byteorder='little')
+                
                 result = {
+                    # Time information
                     'iTOW': int.from_bytes(payload[0:4], byteorder='little'),
                     'year': int.from_bytes(payload[4:6], byteorder='little'),
                     'month': payload[6],
@@ -335,89 +342,89 @@ class UbxProtocol:
                     'min': payload[9],
                     'sec': payload[10],
                     'valid': payload[11],
+                    'tAcc': int.from_bytes(payload[12:16], byteorder='little'),
+                    'nano': int.from_bytes(payload[16:20], byteorder='little', signed=True),
+                    
+                    # Fix information
                     'fixType': payload[20],
+                    'flags': flags,
+                    'flags2': flags2,
+                    'flags3': flags3,
                     'numSV': payload[23],
+                    
+                    # Position
                     'lon': int.from_bytes(payload[24:28], byteorder='little', signed=True) * 1e-7,
                     'lat': int.from_bytes(payload[28:32], byteorder='little', signed=True) * 1e-7,
                     'height': int.from_bytes(payload[32:36], byteorder='little', signed=True) * 1e-3,
                     'hMSL': int.from_bytes(payload[36:40], byteorder='little', signed=True) * 1e-3,
                     'hAcc': int.from_bytes(payload[40:44], byteorder='little') * 1e-3,
                     'vAcc': int.from_bytes(payload[44:48], byteorder='little') * 1e-3,
+                    
+                    # Velocity
                     'velN': int.from_bytes(payload[48:52], byteorder='little', signed=True) * 1e-3,
                     'velE': int.from_bytes(payload[52:56], byteorder='little', signed=True) * 1e-3,
                     'velD': int.from_bytes(payload[56:60], byteorder='little', signed=True) * 1e-3,
                     'gSpeed': int.from_bytes(payload[60:64], byteorder='little', signed=True) * 1e-3,
                     'headMot': int.from_bytes(payload[64:68], byteorder='little', signed=True) * 1e-5,
+                    'sAcc': int.from_bytes(payload[68:72], byteorder='little') * 1e-3,
+                    'headAcc': int.from_bytes(payload[72:76], byteorder='little') * 1e-5,
+                    
+                    # Quality indicators
                     'pDOP': int.from_bytes(payload[76:78], byteorder='little') * 0.01,
+                    
+                    # Vehicle heading (if available)
+                    'headVeh': int.from_bytes(payload[84:88], byteorder='little', signed=True) * 1e-5,
+                    'magDec': int.from_bytes(payload[88:90], byteorder='little', signed=True) * 1e-2,
+                    'magAcc': int.from_bytes(payload[90:92], byteorder='little') * 1e-2,
+                    
+                    # Parsed status flags (from flags byte 21)
+                    'gnssFixOK': bool(flags & 0x01),  # bit 0
+                    'diffSoln': bool(flags & 0x02),   # bit 1
+                    'psmState': (flags >> 2) & 0x07,  # bits 4-2
+                    'headVehValid': bool(flags & 0x20),  # bit 5
+                    'carrSoln': (flags >> 6) & 0x03,  # bits 7-6
+                    
+                    # Parsed additional flags (from flags3 bytes 78-79)
+                    'invalidLlh': bool(flags3 & 0x01),  # bit 0
+                    'lastCorrectionAge': (flags3 >> 1) & 0x0F,  # bits 4-1
+                    
+                    # Derived RTK status for easier interpretation
+                    'rtkStatus': self._get_rtk_status(payload[20], flags),
                 }
                 return result
         
         return None
     
-    def get_system_status(self):
+    def _get_rtk_status(self, fix_type, flags):
         """
-        Get system status information (UBX-MON-SYS).
+        Determine RTK status from fixType and carrSoln flags
+        Based on UBX-NAV-PVT specification.
         
+        Args:
+            fix_type: fixType field from NAV-PVT
+            flags: flags field from NAV-PVT
+            
         Returns:
-            Dictionary with parsed MON-SYS data or None if no response
+            String describing RTK status
         """
-        response = self.poll_message(UbxProtocol.CLASS_MON, UbxProtocol.MON_SYS)
+        carr_soln = (flags >> 6) & 0x03
+        gnss_fix_ok = bool(flags & 0x01)
+        diff_soln = bool(flags & 0x02)
         
-        if response:
-            payload = response['payload']
-            if len(payload) >= 24:
-                result = {
-                    'msgVer': payload[0],
-                    'bootType': payload[1],
-                    'cpuLoad': payload[2],
-                    'cpuLoadMax': payload[3],
-                    'memUsage': payload[4],
-                    'memUsageMax': payload[5],
-                    'ioUsage': payload[6],
-                    'ioUsageMax': payload[7],
-                    'runTime': int.from_bytes(payload[8:12], byteorder='little'),
-                    'noticeCount': int.from_bytes(payload[12:14], byteorder='little'),
-                    'warnCount': int.from_bytes(payload[14:16], byteorder='little'),
-                    'errorCount': int.from_bytes(payload[16:18], byteorder='little'),
-                    'tempValue': int.from_bytes(payload[18:19], byteorder='little', signed=True),
-                }
-                return result
-        
-        return None
-    
-    def get_receiver_version(self):
-        """
-        Get receiver and software version information (UBX-MON-VER).
-        
-        Returns:
-            Dictionary with software version, hardware version, and extensions
-        """
-        response = self.poll_message(UbxProtocol.CLASS_MON, UbxProtocol.MON_VER)
-        
-        if response:
-            payload = response['payload']
-            if len(payload) >= 40:
-                # Extract software version (30 bytes, null-terminated string)
-                sw_version = payload[0:30].split(b'\x00')[0].decode('ascii')
-                
-                # Extract hardware version (10 bytes, null-terminated string)
-                hw_version = payload[30:40].split(b'\x00')[0].decode('ascii')
-                
-                # Extract extension strings (each 30 bytes, null-terminated string)
-                extensions = []
-                for i in range(40, len(payload), 30):
-                    if i + 30 <= len(payload):
-                        ext_str = payload[i:i+30].split(b'\x00')[0].decode('ascii')
-                        if ext_str:  # Only add non-empty strings
-                            extensions.append(ext_str)
-                
-                return {
-                    'sw_version': sw_version,
-                    'hw_version': hw_version,
-                    'extensions': extensions
-                }
-        
-        return None
+        if not gnss_fix_ok:
+            return "NO_FIX"
+        elif carr_soln == 2:
+            return "RTK_FIXED"
+        elif carr_soln == 1:
+            return "RTK_FLOAT"
+        elif diff_soln:
+            return "DGPS"
+        elif fix_type >= 3:
+            return "GPS_3D"
+        elif fix_type == 2:
+            return "GPS_2D"
+        else:
+            return "UNKNOWN"
     
     def configure_for_high_rate(self, rate_ms=50):
         """
@@ -447,7 +454,7 @@ class UbxProtocol:
                 results['nmea'] = False
         
         return results
-
+    
 # Main function to execute when script is run directly
 if __name__ == "__main__":
     import argparse

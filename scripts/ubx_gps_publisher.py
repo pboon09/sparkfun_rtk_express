@@ -16,9 +16,9 @@ class UbxGpsPublisher(Node):
         self.declare_parameter('port', '/dev/ttyRTKExpress')
         self.declare_parameter('baudrate', 57600)
         self.declare_parameter('frame_id', 'gps_link')
-        self.declare_parameter('rate_hz', 10.0)
+        self.declare_parameter('rate_hz', 5.0)  # 5Hz to match Gazebo
         self.declare_parameter('high_rate', True)
-        self.declare_parameter('measurement_rate_ms', 100)
+        self.declare_parameter('measurement_rate_ms', 200)  # 200ms = 5Hz
         
         # Get parameters
         self.port = self.get_parameter('port').value
@@ -44,7 +44,11 @@ class UbxGpsPublisher(Node):
         self.connect_thread.daemon = True
         self.connect_thread.start()
         
-        self.get_logger().info(f"UBX GPS Publisher started on {self.port} at {self.baudrate} baud, publishing at {self.rate_hz} Hz")
+        self.get_logger().info(f"UBX GPS Publisher started on {self.port} at {self.baudrate} baud, publishing at {self.rate_hz} Hz (Gazebo compatible)")
+        
+        # Store some stats for monitoring
+        self.last_fix_type = None
+        self.fix_type_count = {}
     
     def connect_gps(self):
         """Connect to GPS in a separate thread"""
@@ -60,7 +64,6 @@ class UbxGpsPublisher(Node):
             self.get_logger().info(f"Configuring GPS for {1000/self.measurement_rate_ms:.1f}Hz rate...")
             results = self.gps.configure_for_high_rate(self.measurement_rate_ms)
             self.get_logger().info(f"Configuration results: {results}")
-
             
             self.is_running = True
             
@@ -87,15 +90,30 @@ class UbxGpsPublisher(Node):
                 fix_msg.longitude = position['lon']
                 fix_msg.altitude = position.get('hMSL', 0.0)  # Height above mean sea level
                 
-                # Set fix status based on fixType
+                # Enhanced fix status using both fixType and carrSoln flags
                 fix_type = position.get('fixType', 0)
-                if fix_type >= 3:  # 3D fix or better
+                carr_soln = position.get('carrSoln', 0)
+                gnss_fix_ok = position.get('gnssFixOK', False)
+                diff_soln = position.get('diffSoln', False)
+                num_sv = position.get('numSV', 0)
+                
+                # Use enhanced RTK status detection based on UBX-NAV-PVT specification
+                if not gnss_fix_ok:
+                    fix_msg.status.status = NavSatStatus.STATUS_NO_FIX
+                elif carr_soln == 2:  # RTK Fixed (carrier phase solution with fixed ambiguities)
+                    fix_msg.status.status = NavSatStatus.STATUS_GBAS_FIX
+                elif carr_soln == 1:  # RTK Float (carrier phase solution with floating ambiguities)
+                    fix_msg.status.status = NavSatStatus.STATUS_SBAS_FIX
+                elif diff_soln:  # DGPS corrections applied
+                    fix_msg.status.status = NavSatStatus.STATUS_SBAS_FIX
+                elif fix_type >= 3:  # 3D fix or better
                     fix_msg.status.status = NavSatStatus.STATUS_FIX
                 elif fix_type >= 2:  # 2D fix
                     fix_msg.status.status = NavSatStatus.STATUS_FIX
                 else:
                     fix_msg.status.status = NavSatStatus.STATUS_NO_FIX
                 
+                # Enhanced service type - could be enhanced further to detect multi-constellation
                 fix_msg.status.service = NavSatStatus.SERVICE_GPS
                 
                 # Set position covariance if available
@@ -120,7 +138,17 @@ class UbxGpsPublisher(Node):
                 
                 # Publish the message
                 self.fix_pub.publish(fix_msg)
-                self.get_logger().debug(f"Published NavSatFix: lat={fix_msg.latitude:.7f}, lon={fix_msg.longitude:.7f}")
+                
+                # Enhanced logging with detailed RTK status
+                rtk_status = position.get('rtkStatus', 'UNKNOWN')
+                correction_age = position.get('lastCorrectionAge', 0)
+                pdop = position.get('pDOP', 0.0)
+                
+                self.get_logger().debug(
+                    f"Published NavSatFix: lat={fix_msg.latitude:.7f}, lon={fix_msg.longitude:.7f}, "
+                    f"alt={fix_msg.altitude:.3f}, status={rtk_status}, sats={num_sv}, "
+                    f"hAcc={h_acc:.3f}m, vAcc={v_acc:.3f}m, pDOP={pdop:.2f}, corrAge={correction_age}"
+                )
             
         except Exception as e:
             self.get_logger().error(f"Error in timer callback: {e}")
