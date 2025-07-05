@@ -2,7 +2,9 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix, NavSatStatus
-import time
+from geometry_msgs.msg import PoseWithCovarianceStamped
+import math
+from tf_transformations import quaternion_from_euler
 import threading
 
 # Import UBX protocol handler
@@ -30,6 +32,8 @@ class UbxGpsPublisher(Node):
         
         # Create publisher
         self.fix_pub = self.create_publisher(NavSatFix, 'gps/fix', 10)
+
+        self.headmot_pub = self.create_publisher(PoseWithCovarianceStamped, 'headmot', 10)
         
         # Initialize UBX GPS
         self.gps = UbxProtocol()
@@ -135,10 +139,26 @@ class UbxGpsPublisher(Node):
                 else:
                     fix_msg.position_covariance = [0.0] * 9
                     fix_msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_UNKNOWN
-                
+
                 # Publish the message
                 self.fix_pub.publish(fix_msg)
-                
+
+                heading_of_motion = position.get('headMot')          # degrees from the receiver
+                if heading_of_motion is not None:
+                    yaw_rad = math.radians(heading_of_motion)
+
+                    qx, qy, qz, qw = quaternion_from_euler(0.0, 0.0, yaw_rad)
+
+                    headmot_msg = PoseWithCovarianceStamped()
+                    headmot_msg.header.stamp = self.get_clock().now().to_msg()
+                    
+                    headmot_msg.pose.pose.orientation.x = qx
+                    headmot_msg.pose.pose.orientation.y = qy
+                    headmot_msg.pose.pose.orientation.z = qz
+                    headmot_msg.pose.pose.orientation.w = qw
+
+                    self.headmot_pub.publish(headmot_msg)
+
                 # Enhanced logging with detailed RTK status
                 rtk_status = position.get('rtkStatus', 'UNKNOWN')
                 correction_age = position.get('lastCorrectionAge', 0)
