@@ -2,9 +2,9 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix, NavSatStatus
-from geometry_msgs.msg import PoseWithCovarianceStamped
-import math
+from sensor_msgs.msg import Imu
 from tf_transformations import quaternion_from_euler
+import math
 import threading
 
 # Import UBX protocol handler
@@ -32,8 +32,7 @@ class UbxGpsPublisher(Node):
         
         # Create publisher
         self.fix_pub = self.create_publisher(NavSatFix, 'gps/fix', 10)
-
-        self.headmot_pub = self.create_publisher(PoseWithCovarianceStamped, 'headmot', 10)
+        self.headmot_pub = self.create_publisher(Imu, 'headmot', 10)
         
         # Initialize UBX GPS
         self.gps = UbxProtocol()
@@ -139,25 +138,29 @@ class UbxGpsPublisher(Node):
                 else:
                     fix_msg.position_covariance = [0.0] * 9
                     fix_msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_UNKNOWN
-
+                
                 # Publish the message
                 self.fix_pub.publish(fix_msg)
 
-                heading_of_motion = position.get('headMot')          # degrees from the receiver
-                if heading_of_motion is not None:
-                    yaw_rad = math.radians(heading_of_motion)
+                head_mot = position['headMot']
+                # print(head_mot,     position['lat'], position['lon'])
+                if head_mot is not None:
+                    imu_msg = Imu()
+                    imu_msg.header.stamp = self.get_clock().now().to_msg()
+                    # imu_msg.header.frame_id = self.frame_id
 
-                    qx, qy, qz, qw = quaternion_from_euler(0.0, 0.0, yaw_rad)
+                    # Convert yaw from degrees to radians
+                    yaw_rad = math.radians(head_mot)
 
-                    headmot_msg = PoseWithCovarianceStamped()
-                    headmot_msg.header.stamp = self.get_clock().now().to_msg()
-                    
-                    headmot_msg.pose.pose.orientation.x = qx
-                    headmot_msg.pose.pose.orientation.y = qy
-                    headmot_msg.pose.pose.orientation.z = qz
-                    headmot_msg.pose.pose.orientation.w = qw
+                    # Convert from Euler (roll=0, pitch=0, yaw) to quaternion
+                    q = quaternion_from_euler(0.0, 0.0, yaw_rad)
 
-                    self.headmot_pub.publish(headmot_msg)
+                    imu_msg.orientation.x = q[0]
+                    imu_msg.orientation.y = q[1]
+                    imu_msg.orientation.z = q[2]
+                    imu_msg.orientation.w = q[3]
+
+                    self.headmot_pub.publish(imu_msg)
 
                 # Enhanced logging with detailed RTK status
                 rtk_status = position.get('rtkStatus', 'UNKNOWN')
